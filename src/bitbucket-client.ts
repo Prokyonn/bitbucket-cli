@@ -325,8 +325,12 @@ export class BitbucketClient {
     return (await this.request("GET", target)).json();
   }
 
+  /**
+   * Diffs and pipeline logs come as text; the log endpoint answers 406 to a
+   * request for text/plain, so both ask for anything.
+   */
   private async getText(target: string): Promise<string> {
-    return (await this.request("GET", target, { accept: "text/plain" })).text();
+    return (await this.request("GET", target, { accept: "*/*" })).text();
   }
 
   private async send(method: string, target: string, body?: unknown): Promise<unknown> {

@@ -81,13 +81,13 @@ describe("requests", () => {
     });
   }
 
-  it("asks for the diff as plain text and returns it unchanged", async () => {
+  it("asks for the diff as any content type and returns it unchanged", async () => {
     const diff = "diff --git a/x b/x\n+added\n";
     responses.push(new Response(diff, { status: 200, headers: { "Content-Type": "text/plain" } }));
 
     assert.equal(await client.getPullRequestDiff("my-workspace/my-repo", 42), diff);
     assert.equal(requests[0].url, `${PR}/diff`);
-    assert.equal(requests[0].headers.Accept, "text/plain");
+    assert.equal(requests[0].headers.Accept, "*/*");
   });
 
   it("approves with a POST and unapproves with a DELETE", async () => {
