@@ -1,0 +1,43 @@
+{
+  "name": "@prokyonn/bitbucket-cli",
+  "version": "0.1.0",
+  "description": "Read and review Bitbucket Cloud pull requests from the command line",
+  "type": "module",
+  "bin": {
+    "bitbucket": "build/cli.js"
+  },
+  "scripts": {
+    "build": "tsc && chmod +x build/cli.js",
+    "prepare": "npm run build",
+    "format": "prettier --write src tests scripts",
+    "format:check": "prettier --check src tests scripts",
+    "test": "npm run build && node --test \"tests/*.test.mjs\"",
+    "postinstall": "node scripts/postinstall.mjs"
+  },
+  "files": [
+    "build",
+    "skills",
+    "scripts",
+    "README.md"
+  ],
+  "keywords": [
+    "bitbucket",
+    "pull-request",
+    "code-review",
+    "cli"
+  ],
+  "author": "prokyon",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Prokyonn/bitbucket-cli.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.4",
+    "prettier": "^3.9.8",
+    "typescript": "^7.0.2"
+  }
+}
