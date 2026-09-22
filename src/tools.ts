@@ -21,6 +21,15 @@ const accountTools: ToolDefinition[] = [
     inputSchema: { type: "object", properties: {} },
     run: (client) => client.getCurrentUser(),
   }),
+
+  defineTool<Record<string, never>>({
+    name: "list_workspaces",
+    description:
+      "List the workspaces you belong to, with whether you administrate them. Their slugs are " +
+      "the first half of every repository name.",
+    inputSchema: { type: "object", properties: {} },
+    run: (client) => client.listWorkspaces(),
+  }),
 ];
 
 export const tools: ToolDefinition[] = [

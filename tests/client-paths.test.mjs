@@ -28,6 +28,7 @@ afterEach(() => {
 const client = new BitbucketClient({ email: "me@example.com", token: "secret" });
 
 const calls = [
+  ["listWorkspaces", [], `GET ${API_URL}/user/workspaces?pagelen=50`],
   ["listPullRequestActivity", [REPO, 42], `GET ${BASE}/pullrequests/42/activity?pagelen=50`],
   ["listPullRequestStatuses", [REPO, 42], `GET ${BASE}/pullrequests/42/statuses?pagelen=50`],
   ["createPullRequest", [REPO, { title: "t", source: "s" }], `POST ${BASE}/pullrequests`],

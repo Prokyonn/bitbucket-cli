@@ -69,6 +69,11 @@ export class BitbucketClient {
     return (await this.getJson("/user")) as BitbucketUser;
   }
 
+  /** The workspaces the account belongs to, with the role it has in each. */
+  async listWorkspaces(): Promise<unknown[]> {
+    return this.getAllPages(`/user/workspaces?pagelen=${PAGE_LENGTH}`);
+  }
+
   // Pull requests
 
   async listPullRequests(
