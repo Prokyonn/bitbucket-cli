@@ -7,6 +7,7 @@ import { BitbucketApiError, BitbucketClient } from "./bitbucket-client.js";
 import { loadCredentials } from "./config.js";
 import { errorMessage, UsageError } from "./errors.js";
 import { loadScript, runScript, StepResult } from "./script.js";
+import { runSetup, setupHelp, SetupOptions } from "./setup.js";
 import { getTool, JsonSchemaProperty, ToolDefinition, tools } from "./tools.js";
 
 /**
@@ -40,6 +41,10 @@ async function main(argv: string[]): Promise<number> {
 
   if (command === "run") {
     return await runScriptCommand(args);
+  }
+
+  if (command === "setup") {
+    return await setupCommand(args);
   }
 
   if (command.startsWith("-")) {
@@ -136,6 +141,48 @@ async function runScriptCommand(argv: string[]): Promise<number> {
 
   console.log(stringify(results, flags.compact));
   return results.some((step) => step.error) ? 1 : 0;
+}
+
+async function setupCommand(argv: string[]): Promise<number> {
+  const options: SetupOptions = {};
+
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index];
+    switch (arg) {
+      case "--help":
+      case "-h":
+        console.log(setupHelp());
+        return 0;
+      case "--reauth":
+        options.reauth = true;
+        break;
+      case "--no-auth":
+        options.skipAuth = true;
+        break;
+      case "--no-agent-skills":
+        options.skipSkills = true;
+        break;
+      case "--dry-run":
+        options.dryRun = true;
+        break;
+      case "--email":
+      case "--token":
+      case "--dir": {
+        const value = argv[++index];
+        if (value === undefined) {
+          throw new UsageError(`Option '${arg}' requires a value.`);
+        }
+        if (arg === "--email") options.email = value;
+        else if (arg === "--token") options.token = value;
+        else options.dirs = [...(options.dirs ?? []), value];
+        break;
+      }
+      default:
+        throw new UsageError(`Unknown option '${arg}' for 'setup'. See 'bitbucket setup --help'.`);
+    }
+  }
+
+  return await runSetup(options);
 }
 
 interface GlobalFlags {
@@ -416,6 +463,7 @@ function generalHelp(): string {
     "bitbucket — read and review Bitbucket Cloud pull requests from the command line",
     "",
     "Usage:",
+    "  bitbucket setup                 Authenticate and install the agent skill",
     "  bitbucket <tool> [args...]      Run a single tool",
     "  bitbucket run <script.json>     Run a script of tool calls",
     "  bitbucket list                  List all available tools",
@@ -435,8 +483,8 @@ function generalHelp(): string {
     "  --help, -h             Show this help (or a tool's help)",
     "  --version, -v          Print the package version",
     "",
-    "Credentials come from BITBUCKET_EMAIL and BITBUCKET_API_TOKEN in the",
-    "environment or a .env file.",
+    "Credentials come from 'bitbucket setup', or from BITBUCKET_EMAIL and",
+    "BITBUCKET_API_TOKEN in the environment or a .env file (which take precedence).",
     "",
     `Run 'bitbucket list' to see all ${tools.length} tools.`,
   ].join("\n");

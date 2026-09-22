@@ -163,6 +163,37 @@ describe("credentials", () => {
     assert.match(stderr, /No Bitbucket credentials found/);
     assert.match(stderr, /bitbucket setup/);
   });
+
+  it("setup refuses to prompt without a terminal and saves nothing", () => {
+    const { code, stderr } = bitbucket(["setup", "--no-agent-skills"], { input: "" });
+    assert.equal(code, 1);
+    assert.match(stderr, /not an interactive terminal/);
+  });
+
+  it("setup installs the skill into an explicit agent directory", () => {
+    const root = join(mkdtempSync(join(tmpdir(), "bitbucket-cli-")), "agent");
+    const { code, stdout } = bitbucket(["setup", "--no-auth", "--dir", root]);
+
+    assert.equal(code, 0);
+    assert.match(stdout, /bitbucket-cli installed/);
+    assert.match(
+      readFileSync(join(root, "skills", "bitbucket-cli", "SKILL.md"), "utf8"),
+      /^---\nname: bitbucket-cli\n/,
+    );
+  });
+
+  it("setup lists the token scopes in its help", () => {
+    const { stdout } = bitbucket(["setup", "--help"]);
+    for (const scope of ["read:user", "read:pullrequest", "write:pullrequest", "read:repository"]) {
+      assert.match(stdout, new RegExp(`${scope}:bitbucket`));
+    }
+  });
+
+  it("setup exits with 2 for an unknown option", () => {
+    const { code, stderr } = bitbucket(["setup", "--api-key", "x"]);
+    assert.equal(code, 2);
+    assert.match(stderr, /Unknown option '--api-key' for 'setup'/);
+  });
 });
 
 describe("run", () => {
