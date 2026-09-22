@@ -15,7 +15,10 @@ tell the user to run `bitbucket setup` themselves — it is interactive and asks
 for the email and the token, hidden. Never run `bitbucket setup --token ...`
 with a value the user pasted into chat, and never print credential values back.
 An HTTP 403 that names a scope means the token lacks it: the user needs a new
-token with the scopes `bitbucket setup --help` lists.
+token with the scopes `bitbucket setup --help` lists. An HTTP 404 for a
+repository the user can clone usually means the token belongs to another of
+their Atlassian accounts than the one with access; `bitbucket setup` names the
+account's email, and `bitbucket setup --reauth` replaces the token.
 
 ## Key principles
 

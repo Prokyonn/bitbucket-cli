@@ -179,9 +179,10 @@ function setupSkills(options: SetupOptions): void {
   console.log("    Re-run 'bitbucket setup' after upgrading to refresh the skill.");
 }
 
+/** Names the account by its email too: two Atlassian accounts of one person share a display name. */
 async function describeUser(credentials: Credentials): Promise<string> {
   const user = await new BitbucketClient(credentials).getCurrentUser();
-  return `${user.display_name} (${user.nickname})`;
+  return `${user.display_name} <${credentials.email}>`;
 }
 
 async function check(credentials: Credentials): Promise<string | null> {
