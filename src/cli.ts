@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { BitbucketApiError, BitbucketClient } from "./bitbucket-client.js";
 import { loadCredentials } from "./config.js";
 import { errorMessage, UsageError } from "./errors.js";
+import { looksLikeRepo, namesPullRequest, pullRequestOf, repoOf } from "./repo.js";
 import { loadScript, runScript, StepResult } from "./script.js";
 import { runSetup, setupHelp, SetupOptions } from "./setup.js";
 import { getTool, JsonSchemaProperty, ToolDefinition, tools } from "./tools.js";
@@ -66,7 +67,7 @@ async function runToolCommand(name: string, argv: string[]): Promise<number> {
   validateRequired(tool, toolArgs);
 
   if (flags.dryRun) {
-    console.log(stringify({ tool: tool.name, args: toolArgs }, flags.compact));
+    console.log(stringify({ tool: tool.name, args: resolveTarget(tool, toolArgs) }, flags.compact));
     return 0;
   }
 
@@ -226,17 +227,33 @@ function parseToolArgs(
 
     const equals = token.indexOf("=");
     const rawName = equals === -1 ? token.slice(2) : token.slice(2, equals);
+    const inlineValue = equals === -1 ? undefined : token.slice(equals + 1);
+
+    // `--no-<flag>` turns a boolean off.
+    if (rawName.startsWith("no-") && inlineValue === undefined) {
+      const negated = resolveKey(rawName.slice(3), properties);
+      if (negated && properties[negated].type === "boolean") {
+        toolArgs[negated] = false;
+        continue;
+      }
+    }
+
     const key = resolveKey(rawName, properties);
     if (!key) {
       throw new UsageError(unknownOptionMessage(tool, token));
     }
 
-    const value = equals === -1 ? argv[++index] : token.slice(equals + 1);
+    const property = properties[key];
+    if (property.type === "boolean" && inlineValue === undefined) {
+      toolArgs[key] = true;
+      continue;
+    }
+
+    const value = inlineValue ?? argv[++index];
     if (value === undefined) {
       throw new UsageError(`Option '--${rawName}' requires a value.`);
     }
 
-    const property = properties[key];
     if (property.type === "array") {
       const existing = (toolArgs[key] as unknown[] | undefined) ?? [];
       toolArgs[key] = [...existing, ...splitArrayValue(key, value, property)];
@@ -252,8 +269,11 @@ function parseToolArgs(
 }
 
 /**
- * Required arguments may also be passed positionally, in schema order:
+ * Positional arguments, in the order the schema names:
  *   bitbucket add_pull_request_comment <repo> <id> "<content>"
+ *
+ * The leading `repo` and `id` may be left out — a checkout answers for the
+ * repository, and a pull request URL in the `repo` position carries the id.
  */
 function assignPositionals(
   tool: ToolDefinition,
@@ -262,18 +282,47 @@ function assignPositionals(
 ): void {
   if (positionals.length === 0) return;
 
-  const open = (tool.inputSchema.required ?? []).filter((key) => !(key in toolArgs));
+  const required = tool.inputSchema.required ?? [];
+  let open = positionalKeys(tool).filter((key) => !(key in toolArgs));
 
-  if (positionals.length > open.length) {
+  if (open[0] === "repo" && namesPullRequest(positionals[0])) {
+    toolArgs.repo = positionals.shift();
+    open = open.filter((key) => key !== "repo" && key !== "id");
+  }
+
+  // The leading repo and id are optional: they take a token only when one is
+  // left over for them, and the repository only a token shaped like one.
+  let spare = positionals.length - open.filter((key) => required.includes(key)).length;
+  const keys: string[] = [];
+  let skippedRepo = false;
+  for (const key of open) {
+    if ((key === "repo" || key === "id") && !required.includes(key)) {
+      if (spare <= 0) continue;
+      if (key === "repo" && !looksLikeRepo(positionals[keys.length])) {
+        skippedRepo = true;
+        continue;
+      }
+      spare--;
+    }
+    keys.push(key);
+  }
+
+  if (positionals.length > keys.length) {
+    if (skippedRepo) {
+      throw new UsageError(
+        `'${positionals[0]}' does not name a repository. Use workspace/slug or a ` +
+          `bitbucket.org URL, or leave it out inside a checkout.`,
+      );
+    }
     throw new UsageError(
       `Too many positional arguments for '${tool.name}'. ` +
-        `Expected at most ${open.length} (${open.join(", ") || "none"}), got ${positionals.length}. ` +
+        `Expected at most ${keys.length} (${keys.join(", ") || "none"}), got ${positionals.length}. ` +
         `Optional arguments must be passed as --flags.`,
     );
   }
 
   positionals.forEach((value, index) => {
-    const key = open[index];
+    const key = keys[index];
     const property = tool.inputSchema.properties[key];
     toolArgs[key] =
       property.type === "array"
@@ -319,14 +368,22 @@ function resolveKey(
   return Object.keys(properties).find((key) => key.toLowerCase() === lowered);
 }
 
-/** Enum lists are comma-separated (their values never contain commas); anything else repeats. */
+/** Lists of names and ids are comma-separated; free text repeats the flag instead. */
 function splitArrayValue(key: string, value: string, property: JsonSchemaProperty): unknown[] {
   const itemSchema = property.items ?? { type: "string" };
-  const items = itemSchema.enum ? value.split(",").map((entry) => entry.trim()) : [value];
+  const separable = property.commaSeparated || itemSchema.enum !== undefined;
+  const items = separable ? value.split(",").map((entry) => entry.trim()) : [value];
   return items.filter((item) => item.length > 0).map((item) => coerce(item, itemSchema, key));
 }
 
 function coerce(value: string, property: JsonSchemaProperty, flagName: string): unknown {
+  if (property.type === "boolean") {
+    const normalized = value.toLowerCase();
+    if (["true", "1", "yes", "y"].includes(normalized)) return true;
+    if (["false", "0", "no", "n"].includes(normalized)) return false;
+    throw new UsageError(`Option '--${flagName}' expects true or false, got '${value}'.`);
+  }
+
   if (property.type === "number") {
     const parsed = Number(value);
     if (value.trim() === "" || Number.isNaN(parsed)) {
@@ -356,6 +413,23 @@ function requireTool(name: string): ToolDefinition {
     );
   }
   return tool;
+}
+
+/** Fills in the repository (and the id a URL carries) so a dry run shows what would be called. */
+function resolveTarget(
+  tool: ToolDefinition,
+  toolArgs: Record<string, unknown>,
+): Record<string, unknown> {
+  const properties = tool.inputSchema.properties;
+  if (!("repo" in properties)) return toolArgs;
+  return {
+    ...toolArgs,
+    ...("id" in properties ? pullRequestOf(toolArgs) : { repo: repoOf(toolArgs) }),
+  };
+}
+
+function positionalKeys(tool: ToolDefinition): string[] {
+  return tool.inputSchema.positional ?? tool.inputSchema.required ?? [];
 }
 
 function unknownOptionMessage(tool: ToolDefinition, token: string): string {
@@ -415,7 +489,9 @@ function toolHelp(tool: ToolDefinition): string {
     return `${signatures[index].padEnd(width)}  ${marker}${properties[key].description ?? ""}`;
   });
 
-  const positional = required.length > 0 ? ` <${required.join("> <")}>` : "";
+  const positional = positionalKeys(tool)
+    .map((key) => (required.includes(key) ? ` <${key}>` : ` [<${key}>]`))
+    .join("");
 
   return [
     `bitbucket ${tool.name}${positional} [options]`,
@@ -423,9 +499,11 @@ function toolHelp(tool: ToolDefinition): string {
     tool.description,
     "",
     ...(lines.length > 0 ? ["Arguments:", ...lines, ""] : []),
-    ...(required.length > 0
-      ? ["Required arguments may be passed positionally, in the order shown above."]
+    "Arguments in angle brackets may be passed positionally, in the order shown above.",
+    ...(positionalKeys(tool)[0] === "repo"
+      ? ["The repository may be left out inside a Bitbucket checkout."]
       : []),
+    ...("id" in properties ? ["A pull request URL stands in for the repository and the id."] : []),
     "Other options: --json '<object>', --dry-run, --compact",
   ].join("\n");
 }

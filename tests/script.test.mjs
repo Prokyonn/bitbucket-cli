@@ -76,18 +76,10 @@ describe("runScript", () => {
 
     const results = await runScript(client, script);
 
-    assert.deepEqual(client.calls[1], [
-      "comment",
-      REPO,
-      42,
-      {
-        content: "Detail on 100",
-        path: undefined,
-        line: undefined,
-        startLine: undefined,
-        parentId: 100,
-      },
-    ]);
+    const [kind, repo, id, params] = client.calls[1];
+    assert.deepEqual([kind, repo, id], ["comment", REPO, 42]);
+    assert.equal(params.content, "Detail on 100");
+    assert.equal(params.parentId, 100);
     assert.deepEqual(
       results.map((step) => step.result),
       [{ id: 100 }, { id: 101 }],

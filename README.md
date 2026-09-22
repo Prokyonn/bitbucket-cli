@@ -1,8 +1,10 @@
 # bitbucket-cli
 
-Read and review Bitbucket Cloud pull requests from the command line: list them, read one with
-its diff, commits and comments, comment inline or in reply, approve or request changes. Built for
-agent sessions that have no Bitbucket MCP server connected, after the model of
+Work with Bitbucket Cloud from the command line, the way `gh` works for GitHub: pull requests
+(list, read, diff, create, update, merge, decline), reviews (inline comments, replies, resolving,
+tasks, approve or request changes), build statuses and pipelines with their step logs, and
+repository reads (branches, commits, files at a ref). Built for agent sessions that have no
+Bitbucket MCP server connected, after the model of
 [trello-mcp](https://github.com/wachterjohannes/trello-mcp)'s `trello` CLI.
 
 ## Install
@@ -26,7 +28,11 @@ for the Bitbucket app:
 - `read:pullrequest:bitbucket`
 - `write:pullrequest:bitbucket`
 - `read:repository:bitbucket`, because a pull request's diff redirects to the repository diff
+- `read:pipeline:bitbucket` and `write:pipeline:bitbucket` for pipelines, their logs, and
+  starting or stopping a run
+- `read:workspace:bitbucket` to list workspaces and their members
 
+Scopes cannot be added to a token afterwards; a missing one shows up as HTTP 403 naming it.
 `BITBUCKET_EMAIL` and `BITBUCKET_API_TOKEN`, in the environment or a `.env` file in the working
 directory, take precedence over the stored file.
 
@@ -35,17 +41,28 @@ directory, take precedence over the stored file.
 ```bash
 bitbucket list                                        # every tool
 bitbucket help add_pull_request_comment               # a tool's arguments
-bitbucket list_pull_requests my-workspace/my-repo --compact
-bitbucket get_pull_request my-workspace/my-repo 42
-bitbucket get_pull_request_diff my-workspace/my-repo 42
-bitbucket add_pull_request_comment my-workspace/my-repo 42 "Typo" --path src/A.php --line 12
-bitbucket approve_pull_request my-workspace/my-repo 42
+
+# Inside a checkout of the repository, it needs no repository argument
+bitbucket list_pull_requests --compact
+bitbucket get_pull_request 42
+bitbucket get_pull_request_diff 42
+bitbucket add_pull_request_comment 42 "Typo" --path src/A.php --line 12
+bitbucket approve_pull_request 42
+bitbucket list_pull_request_statuses 42                # what CI says
+bitbucket get_pipeline_step_log 77 '{step-uuid}' | tail -50
+
+# Elsewhere, name the repository first or paste a pull request URL
+bitbucket list_pull_requests my-workspace/my-repo --state MERGED --limit 10
+bitbucket get_pull_request https://bitbucket.org/my-workspace/my-repo/pull-requests/42
+
 bitbucket run review.json --dry-run                   # several calls as one checked script
 ```
 
-Required arguments are positional, everything else is a flag; `--json '<object>'` passes arguments
-as JSON, `--dry-run` prints the call instead of making it. Results are Bitbucket's JSON on stdout,
-the diff plain text. Exit codes: `0` success, `1` runtime or API failure, `2` usage error.
+The repository comes from the argument, else `BITBUCKET_REPO`, else the origin remote of the
+working directory. Arguments in angle brackets are positional, everything else is a flag;
+`--json '<object>'` passes arguments as JSON, `--dry-run` prints the call instead of making it.
+Results are Bitbucket's JSON on stdout, diffs and pipeline logs plain text. Exit codes: `0`
+success, `1` runtime or API failure, `2` usage error.
 [`skills/bitbucket-cli/SKILL.md`](skills/bitbucket-cli/SKILL.md) covers reviewing with it in
 detail.
 

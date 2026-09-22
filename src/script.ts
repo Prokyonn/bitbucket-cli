@@ -1,6 +1,7 @@
 import { readFile } from "fs/promises";
 import { BitbucketClient } from "./bitbucket-client.js";
 import { errorMessage, UsageError } from "./errors.js";
+import { namesPullRequest } from "./repo.js";
 import { getTool, tools } from "./tools.js";
 
 /**
@@ -116,6 +117,11 @@ export function validateScript(parsed: unknown, source = "script"): Script {
       throw new ScriptError(
         `${label} of '${source}' (${step.tool}) is missing ${missing.join(", ")}.`,
       );
+    }
+    // A script names its pull request: nothing here is typed in a checkout.
+    const positional = tool.inputSchema.positional ?? [];
+    if (positional.includes("id") && !("id" in args) && !namesPullRequest(args.repo)) {
+      throw new ScriptError(`${label} of '${source}' (${step.tool}) is missing id.`);
     }
 
     // Placeholders can only point at steps that already ran (or the environment),

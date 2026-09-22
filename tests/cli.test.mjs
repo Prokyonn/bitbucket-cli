@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -10,8 +11,8 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = join(ROOT, "build", "cli.js");
 
 /** Runs the CLI in an empty directory, with no credentials anywhere. */
-function bitbucket(args, { input, env = {} } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), "bitbucket-cli-"));
+function bitbucket(args, { input, env = {}, cwd } = {}) {
+  const dir = cwd ?? mkdtempSync(join(tmpdir(), "bitbucket-cli-"));
   const result = spawnSync(process.execPath, [CLI, ...args], {
     cwd: dir,
     env: { PATH: process.env.PATH, HOME: dir, XDG_CONFIG_HOME: join(dir, "config"), ...env },
@@ -21,10 +22,18 @@ function bitbucket(args, { input, env = {} } = {}) {
   return { code: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-function dryRun(args) {
-  const { code, stdout, stderr } = bitbucket([...args, "--dry-run", "--compact"]);
+function dryRun(args, options) {
+  const { code, stdout, stderr } = bitbucket([...args, "--dry-run", "--compact"], options);
   assert.equal(code, 0, stderr);
   return JSON.parse(stdout);
+}
+
+/** A checkout whose origin is a Bitbucket repository. */
+function checkout(remote = "git@bitbucket.org:my-workspace/my-repo.git") {
+  const dir = mkdtempSync(join(tmpdir(), "bitbucket-cli-"));
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  execFileSync("git", ["remote", "add", "origin", remote], { cwd: dir });
+  return dir;
 }
 
 describe("discovery", () => {
@@ -52,7 +61,10 @@ describe("discovery", () => {
   it("shows a tool's positional arguments and options", () => {
     const { code, stdout } = bitbucket(["help", "add_pull_request_comment"]);
     assert.equal(code, 0);
-    assert.match(stdout, /^bitbucket add_pull_request_comment <repo> <id> <content> \[options\]/);
+    assert.match(
+      stdout,
+      /^bitbucket add_pull_request_comment \[<repo>\] \[<id>\] <content> \[options\]/,
+    );
     assert.match(stdout, /--startLine <number>/);
   });
 
@@ -124,10 +136,6 @@ describe("arguments", () => {
 
   const usageErrors = [
     [["no_such_tool"], /Unknown tool 'no_such_tool'/],
-    [
-      ["get_pull_request", "my-workspace/my-repo"],
-      /Missing required argument for 'get_pull_request': --id/,
-    ],
     [["get_pull_request", "my-workspace/my-repo", "42", "extra"], /Too many positional arguments/],
     [["get_pull_request", "my-workspace/my-repo", "42", "--nope", "x"], /Unknown option '--nope'/],
     [["get_pull_request", "my-workspace/my-repo", "forty-two"], /expects a number/],
@@ -147,12 +155,109 @@ describe("arguments", () => {
     });
   }
 
-  it("exits with 2 when the client refuses an argument", () => {
-    const { code, stderr } = bitbucket(["get_pull_request", "my-repo", "42"], {
-      env: { BITBUCKET_EMAIL: "me@example.com", BITBUCKET_API_TOKEN: "unused" },
-    });
+  it("exits with 2 when an argument cannot name a repository", () => {
+    const { code, stderr } = bitbucket(["get_pull_request", "my-repo", "42", "--dry-run"]);
     assert.equal(code, 2);
-    assert.match(stderr, /'repo' must be workspace\/slug/);
+    assert.match(stderr, /'my-repo' does not name a repository/);
+  });
+
+  it("asks for the pull request id when only a repository is given", () => {
+    const { code, stderr } = bitbucket(["get_pull_request", "my-workspace/my-repo", "--dry-run"]);
+    assert.equal(code, 2);
+    assert.match(stderr, /No pull request id/);
+  });
+
+  it("takes a pull request URL in place of repository and id", () => {
+    const call = dryRun([
+      "get_pull_request",
+      "https://bitbucket.org/my-workspace/my-repo/pull-requests/42",
+    ]);
+    assert.deepEqual(call.args, { repo: "my-workspace/my-repo", id: 42 });
+  });
+
+  it("refuses a URL and an id that disagree", () => {
+    const { code, stderr } = bitbucket([
+      "get_pull_request",
+      "https://bitbucket.org/my-workspace/my-repo/pull-requests/42",
+      "--id",
+      "7",
+      "--dry-run",
+    ]);
+    assert.equal(code, 2);
+    assert.match(stderr, /URL names pull request 42, but 'id' says 7/);
+  });
+
+  it("keeps a path positional out of the repository slot", () => {
+    const call = dryRun(["get_file", "src/A.php", "--ref", "main"], {
+      env: { BITBUCKET_REPO: "my-workspace/my-repo" },
+    });
+    assert.deepEqual(call.args, { repo: "my-workspace/my-repo", path: "src/A.php", ref: "main" });
+  });
+
+  it("takes booleans as flags, and --no- turns them off", () => {
+    assert.equal(
+      dryRun(["merge_pull_request", "a/b", "42", "--closeSourceBranch"]).args.closeSourceBranch,
+      true,
+    );
+    assert.equal(
+      dryRun(["merge_pull_request", "a/b", "42", "--no-close-source-branch"]).args
+        .closeSourceBranch,
+      false,
+    );
+    assert.equal(
+      dryRun(["merge_pull_request", "a/b", "42", "--closeSourceBranch=false"]).args
+        .closeSourceBranch,
+      false,
+    );
+  });
+
+  it("splits a reviewer list on commas", () => {
+    const call = dryRun([
+      "create_pull_request",
+      "a/b",
+      "Title",
+      "feature",
+      "--reviewers",
+      "{uuid-1},acc-2",
+    ]);
+    assert.deepEqual(call.args.reviewers, ["{uuid-1}", "acc-2"]);
+  });
+});
+
+describe("the repository of a call", () => {
+  it("comes from the checkout the command runs in", () => {
+    const call = dryRun(["list_pull_requests"], { cwd: checkout() });
+    assert.equal(call.args.repo, "my-workspace/my-repo");
+  });
+
+  it("reads an https remote too", () => {
+    const call = dryRun(["get_pull_request", "42"], {
+      cwd: checkout("https://prokyon@bitbucket.org/my-workspace/my-repo.git"),
+    });
+    assert.deepEqual(call.args, { repo: "my-workspace/my-repo", id: 42 });
+  });
+
+  it("prefers BITBUCKET_REPO over the checkout", () => {
+    const call = dryRun(["list_pull_requests"], {
+      cwd: checkout(),
+      env: { BITBUCKET_REPO: "other-workspace/other-repo" },
+    });
+    assert.equal(call.args.repo, "other-workspace/other-repo");
+  });
+
+  it("prefers the argument over everything", () => {
+    const call = dryRun(["list_pull_requests", "named/repo"], {
+      cwd: checkout(),
+      env: { BITBUCKET_REPO: "other-workspace/other-repo" },
+    });
+    assert.equal(call.args.repo, "named/repo");
+  });
+
+  it("explains itself outside a Bitbucket checkout", () => {
+    const { code, stderr } = bitbucket(["list_pull_requests", "--dry-run"]);
+    assert.equal(code, 2);
+    assert.match(stderr, /No repository given/);
+    assert.match(stderr, /BITBUCKET_REPO/);
   });
 });
 
