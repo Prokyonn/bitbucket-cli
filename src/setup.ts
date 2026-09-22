@@ -8,6 +8,7 @@ import {
   writeStoredCredentials,
 } from "./config.js";
 import { errorMessage } from "./errors.js";
+import { readStdin } from "./stdin.js";
 import { detectAgentRoots, installSkills, SKILL_NAME } from "./skills.js";
 
 /**
@@ -17,12 +18,19 @@ import { detectAgentRoots, installSkills, SKILL_NAME } from "./skills.js";
 
 export const TOKEN_URL = "https://id.atlassian.com/manage-profile/security/api-tokens";
 
-/** The pull request diff redirects to the repository diff, hence the repository scope. */
+/** What reading and reviewing pull requests needs; the diff redirects to the repository diff. */
 export const REQUIRED_SCOPES = [
   "read:user:bitbucket",
   "read:pullrequest:bitbucket",
   "write:pullrequest:bitbucket",
   "read:repository:bitbucket",
+];
+
+/** What the pipeline and workspace tools need on top. Scopes cannot be added later. */
+export const EXTRA_SCOPES = [
+  "read:pipeline:bitbucket",
+  "write:pipeline:bitbucket",
+  "read:workspace:bitbucket",
 ];
 
 export interface SetupOptions {
@@ -37,6 +45,8 @@ export interface SetupOptions {
   /** Credentials given on the command line; whatever is missing is asked for. */
   email?: string;
   token?: string;
+  /** Read the token from stdin, for terminals that cannot prompt. */
+  tokenStdin?: boolean;
   dryRun?: boolean;
 }
 
@@ -58,7 +68,11 @@ export async function runSetup(options: SetupOptions = {}): Promise<number> {
 async function setupAuth(options: SetupOptions): Promise<boolean> {
   console.log("Authentication");
 
-  const replacing = options.reauth || options.email !== undefined || options.token !== undefined;
+  const replacing =
+    options.reauth ||
+    options.email !== undefined ||
+    options.token !== undefined ||
+    options.tokenStdin === true;
 
   if (!replacing) {
     const fromEnv = readEnvCredentials();
@@ -117,6 +131,20 @@ async function setupAuth(options: SetupOptions): Promise<boolean> {
 }
 
 async function askForCredentials(options: SetupOptions): Promise<Credentials | null> {
+  if (options.tokenStdin) {
+    const email = options.email ?? process.env.BITBUCKET_EMAIL;
+    if (email === undefined) {
+      console.error("  ✖ --token-stdin needs --email as well.");
+      return null;
+    }
+    const token = (await readStdin()).trim();
+    if (!token) {
+      console.error("  ✖ Nothing arrived on stdin.");
+      return null;
+    }
+    return { email: email.trim(), token };
+  }
+
   if (options.email !== undefined && options.token !== undefined) {
     return { email: options.email.trim(), token: options.token.trim() };
   }
@@ -124,8 +152,9 @@ async function askForCredentials(options: SetupOptions): Promise<Credentials | n
   if (!process.stdin.isTTY) {
     console.error("  ✖ No working credentials found and this is not an interactive terminal.");
     console.error(
-      "    Pass --email and --token, or set BITBUCKET_EMAIL and BITBUCKET_API_TOKEN in the environment.",
+      "    Pipe the token in with --email <email> --token-stdin, pass --email and --token,",
     );
+    console.error("    or set BITBUCKET_EMAIL and BITBUCKET_API_TOKEN in the environment.");
     return null;
   }
 
@@ -136,6 +165,10 @@ async function askForCredentials(options: SetupOptions): Promise<Credentials | n
     console.log(`  1. Create an API token with scopes at ${TOKEN_URL}`);
     console.log("     Choose the Bitbucket app and these scopes:");
     for (const scope of REQUIRED_SCOPES) {
+      console.log(`       ${scope}`);
+    }
+    console.log("     Add these for the pipeline and workspace tools:");
+    for (const scope of EXTRA_SCOPES) {
       console.log(`       ${scope}`);
     }
     console.log("");
@@ -226,13 +259,16 @@ export function setupHelp(): string {
     "  --reauth               Replace existing credentials",
     "  --email <email>        Atlassian account email (asked for when missing)",
     "  --token <token>        API token (asked for, hidden, when missing)",
+    "  --token-stdin          Read the token from stdin, for terminals that cannot prompt",
     "  --no-auth              Skip authentication",
     "  --no-agent-skills      Skip installing the agent skill",
     "  --dir <path>           Extra agent root to install the skill into",
     "  --dry-run              Report what would happen without writing anything",
     "",
-    `Create the token at ${TOKEN_URL}`,
-    `with the scopes ${REQUIRED_SCOPES.join(", ")}.`,
+    `Create the token at ${TOKEN_URL}, for the Bitbucket app, with the scopes`,
+    `${REQUIRED_SCOPES.join(", ")},`,
+    `and, for the pipeline and workspace tools, ${EXTRA_SCOPES.join(", ")}.`,
+    "Scopes cannot be added to a token afterwards.",
     "",
     `Credentials are stored in ${credentialsPath()}.`,
     "BITBUCKET_EMAIL / BITBUCKET_API_TOKEN (or a .env file) still take precedence.",

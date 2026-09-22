@@ -2,6 +2,7 @@ import { readFile } from "fs/promises";
 import { BitbucketClient } from "./bitbucket-client.js";
 import { errorMessage, UsageError } from "./errors.js";
 import { namesPullRequest } from "./repo.js";
+import { readStdin } from "./stdin.js";
 import { getTool, tools } from "./tools.js";
 
 /**
@@ -294,12 +295,4 @@ function lookup(path: string, context: Record<string, unknown>, options: Resolve
   }
 
   return current;
-}
-
-async function readStdin(): Promise<string> {
-  const chunks: Buffer[] = [];
-  for await (const chunk of process.stdin) {
-    chunks.push(Buffer.from(chunk));
-  }
-  return Buffer.concat(chunks).toString("utf8");
 }

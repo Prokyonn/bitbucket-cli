@@ -287,9 +287,32 @@ describe("credentials", () => {
     );
   });
 
+  it("setup reads a piped token only with an email", () => {
+    const missingEmail = bitbucket(["setup", "--token-stdin", "--no-agent-skills"], {
+      input: "ATATT-token",
+    });
+    assert.equal(missingEmail.code, 1);
+    assert.match(missingEmail.stderr, /--token-stdin needs --email/);
+
+    const nothingPiped = bitbucket(
+      ["setup", "--email", "me@example.com", "--token-stdin", "--no-agent-skills"],
+      { input: "" },
+    );
+    assert.equal(nothingPiped.code, 1);
+    assert.match(nothingPiped.stderr, /Nothing arrived on stdin/);
+  });
+
   it("setup lists the token scopes in its help", () => {
     const { stdout } = bitbucket(["setup", "--help"]);
-    for (const scope of ["read:user", "read:pullrequest", "write:pullrequest", "read:repository"]) {
+    for (const scope of [
+      "read:user",
+      "read:pullrequest",
+      "write:pullrequest",
+      "read:repository",
+      "read:pipeline",
+      "write:pipeline",
+      "read:workspace",
+    ]) {
       assert.match(stdout, new RegExp(`${scope}:bitbucket`));
     }
   });

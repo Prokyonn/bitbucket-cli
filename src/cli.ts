@@ -166,6 +166,9 @@ async function setupCommand(argv: string[]): Promise<number> {
       case "--dry-run":
         options.dryRun = true;
         break;
+      case "--token-stdin":
+        options.tokenStdin = true;
+        break;
       case "--email":
       case "--token":
       case "--dir": {
