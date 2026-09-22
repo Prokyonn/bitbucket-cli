@@ -71,6 +71,9 @@ bitbucket list_pull_request_comments 42 --compact | jq '.[] | select(.deleted | 
   at most 50: `--state OPEN,MERGED,DECLINED,SUPERSEDED` and `--limit` change that.
 - A participant's `state` is `approved`, `changes_requested` or `null`. Match
   yourself by `uuid` or `account_id` from `get_current_user`.
+- `source.commit.hash` is the **short** 12-character hash;
+  `list_pull_request_commits` returns the full 40-character one. Compare hashes
+  by prefix, or take the full one from the commits.
 
 ## Commenting
 
