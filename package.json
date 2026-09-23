@@ -1,5 +1,5 @@
 {
-  "name": "@prokyonn/bitbucket-cli",
+  "name": "@prokyon1/bitbucket-cli",
   "version": "0.1.0",
   "description": "Read and review Bitbucket Cloud pull requests from the command line",
   "type": "module",

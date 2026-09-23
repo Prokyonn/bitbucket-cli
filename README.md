@@ -10,7 +10,7 @@ Bitbucket MCP server connected, after the model of
 ## Install
 
 ```bash
-npm install -g @prokyonn/bitbucket-cli
+npm install -g @prokyon1/bitbucket-cli
 bitbucket setup
 ```
 
